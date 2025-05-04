@@ -25,8 +25,15 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(psb_algorithm PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# Enable OpenMP (optional, for parallelization)
-find_package(OpenMP)
+# Enable OpenMP for parallelization
+find_package(OpenMP REQUIRED)
 if(OpenMP_CXX_FOUND)
     target_link_libraries(psb_algorithm PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+# Enable MPI for distributed computing
+find_package(MPI REQUIRED)
+if(MPI_CXX_FOUND)
+    target_link_libraries(psb_algorithm PUBLIC MPI::MPI_CXX)
+    message(STATUS "MPI support enabled")
 endif()

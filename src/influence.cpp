@@ -1,9 +1,12 @@
 #include "influence.h"
 #include <omp.h>
+#include <mpi.h>
 #include <unordered_set>
 #include <iostream>
 #include <cmath>
-
+#include <vector>
+#include <array>
+#include <algorithm>
 
 static float jaccard(const std::vector<float>& a, const std::vector<float>& b) {
     float dot = 0, sum_a = 0, sum_b = 0;
@@ -19,16 +22,25 @@ computeInfluencePower(const std::vector<Node>& graph,
                       const std::array<double, NUM_LAYERS>& alpha,
                       double d)
 {
+    int mpi_rank, mpi_size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank); // Get the rank of the current MPI process
+    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size); // Get the total number of MPI processes
+
     const int N = graph.size();
     std::vector<double> F(N), IP(N, 0.0), IPnew(N, 0.0);
 
     // 1) Compute normalized follower count F(u) = |Followers(u)| / N
     std::vector<int> followers(N, 0);
+    #pragma omp parallel for
     for (int u = 0; u < N; ++u) {
         for (auto& e : graph[u].out[FOLLOW]) {
-            if (e.to < N) followers[e.to]++;
+            if (e.to < N) {
+                #pragma omp atomic
+                followers[e.to]++;
+            }
         }
     }
+    #pragma omp parallel for
     for (int u = 0; u < N; ++u)
         F[u] = (double)followers[u] / N;
 
@@ -37,6 +49,9 @@ computeInfluencePower(const std::vector<Node>& graph,
     for (auto& node : graph)
         maxLevel = std::max(maxLevel, node.level);
 
+    // Broadcast maxLevel to all MPI processes
+    MPI_Bcast(&maxLevel, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
     // 3) Group nodes by level
     std::vector<std::vector<int>> byLevel(maxLevel + 1);
     for (int u = 0; u < N; ++u)
@@ -44,10 +59,21 @@ computeInfluencePower(const std::vector<Node>& graph,
 
     // 4) Influence propagation level by level
     for (int lvl = 0; lvl <= maxLevel; ++lvl) {
-        std::cout << "[LOG] Level " << lvl << ": " << byLevel[lvl].size() << " nodes\n";
+        if (mpi_rank == 0) {
+            std::cout << "[LOG] Level " << lvl << ": " << byLevel[lvl].size() << " nodes\n";
+        }
+
+        // Distribute nodes at this level across MPI processes
+        std::vector<int> local_nodes;
+        for (size_t i = mpi_rank; i < byLevel[lvl].size(); i += mpi_size) {
+            local_nodes.push_back(byLevel[lvl][i]);
+        }
+
+        // Compute influence power for local nodes
+        std::vector<double> local_IPnew(N, 0.0);
         #pragma omp parallel for schedule(dynamic)
-        for (size_t i = 0; i < byLevel[lvl].size(); ++i) {
-            int u = byLevel[lvl][i];
+        for (size_t i = 0; i < local_nodes.size(); ++i) {
+            int u = local_nodes[i];
             double sum = 0.0;
 
             // Loop through potential followers (v -> u) in FOLLOW layer
@@ -78,8 +104,11 @@ computeInfluencePower(const std::vector<Node>& graph,
             }
 
             // Final influence power update
-            IPnew[u] = (1.0 - d) * F[u] + d * sum;
+            local_IPnew[u] = (1.0 - d) * F[u] + d * sum;
         }
+
+        // Gather results from all MPI processes
+        MPI_Allreduce(local_IPnew.data(), IPnew.data(), N, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
         // Commit updates
         #pragma omp parallel for
