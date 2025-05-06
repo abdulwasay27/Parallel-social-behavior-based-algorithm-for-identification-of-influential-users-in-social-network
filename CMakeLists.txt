@@ -25,15 +25,23 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(psb_algorithm PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# Enable OpenMP for parallelization
-find_package(OpenMP REQUIRED)
+# --- Add gprof profiling flags ---
+# Add -pg flag for compiling and linking
+target_compile_options(psb_algorithm PRIVATE -pg)
+target_link_options(psb_algorithm PRIVATE -pg)
+# --- End gprof flags ---
+
+# Enable OpenMP (optional, for parallelization)
+find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
     target_link_libraries(psb_algorithm PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
-# Enable MPI for distributed computing
+# --- Link MPI Libraries (Ensure this is present if using MPI) ---
 find_package(MPI REQUIRED)
-if(MPI_CXX_FOUND)
-    target_link_libraries(psb_algorithm PUBLIC MPI::MPI_CXX)
-    message(STATUS "MPI support enabled")
+if(MPI_FOUND)
+    target_link_libraries(psb_algorithm PRIVATE MPI::MPI_CXX)
+else()
+    message(FATAL_ERROR "MPI not found, but required.")
 endif()
+# --- End MPI Linking ---

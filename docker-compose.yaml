@@ -1,0 +1,27 @@
+services:
+  mpi-master:
+    build: .
+    container_name: mpi-master
+    depends_on:
+      - mpi-worker1
+      - mpi-worker2
+    ports:
+      - "2222:22"  # optional: map host port 2222 to container SSH (not strictly needed for mpirun)
+    networks:
+      - mpi-net
+
+  mpi-worker1:
+    build: .
+    container_name: mpi-worker1
+    networks:
+      - mpi-net
+
+  mpi-worker2:
+    build: .
+    container_name: mpi-worker2
+    networks:
+      - mpi-net
+
+networks:
+  mpi-net:
+    driver: bridge
